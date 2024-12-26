@@ -1,7 +1,7 @@
 {
-  "name": "soso-Autoreff",
+  "name": "soso-Autoref",
   "version": "1.0.0",
-  "description": "SoSoValue Autoreff",
+  "description": "SoSoValue Autoref",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
