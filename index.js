@@ -361,6 +361,7 @@ async function loginToken(token, email, password) {
             ...axiosConfig
         });
         fs.appendFileSync('results.txt', `${email}|${password}|${response.data.data.invitationCode}|isRobot: ${response.data.data.isRobot}|isSuspicious: ${response.data.data.isSuspicious}\n`, 'utf8');
+        fs.appendFileSync('refcodeonly.txt', `${response.data.data.invitationCode}\n`, 'utf8');
         return response;
     } catch (error) {
         console.error(chalk.red('[!] Error:', error.message));
