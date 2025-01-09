@@ -51,6 +51,30 @@ function loadProxies() {
     }
 }
 
+async function loadRefCodes() {
+    try {
+        if (!fs.existsSync('refcode.txt')) {
+            console.log(chalk.red('[!] refcode.txt not found'));
+            return [];
+        }
+        const codes = fs.readFileSync('refcode.txt', 'utf8')
+            .split('\n')
+            .map(code => code.trim())
+            .filter(code => code.length > 0);
+        
+        if (codes.length === 0) {
+            console.log(chalk.red('[!] No referral codes found in refcode.txt'));
+            return [];
+        }
+        
+        console.log(chalk.green(`[+] Loaded ${codes.length} referral codes from refcode.txt`));
+        return codes;
+    } catch (error) {
+        console.log(chalk.red(`[!] Error loading referral codes: ${error.message}`));
+        return [];
+    }
+}
+
 async function checkIP() {
     try {
         const response = await axios.get('https://api.ipify.org?format=json', axiosConfig);
@@ -198,7 +222,6 @@ async function verifEmail(email, password, verifyCode, invitationCode) {
             const response = await axios.post('https://gw.sosovalue.com/usercenter/user/anno/v3/register', data, axiosConfig);
             if(response.data.code === 0){
                 console.log(chalk.green(`[+] Account created successfully with referral code: ${invitationCode}`));
-                fs.appendFileSync('results.txt', `${email}|${password}|${invitationCode}\n`, 'utf8');
                 return response.data;
             }
             throw new Error(`Invalid response code: ${response.data.code}`);
@@ -217,7 +240,7 @@ async function verifEmail(email, password, verifyCode, invitationCode) {
     }
 }
 
-async function getOTP(email, domain) {
+async function getOTP(email, domain, index = 0) {
     for (let inboxNum = 1; inboxNum <= 9; inboxNum++) {
         let attempt = 0;
         while (attempt < maxRetries) {
@@ -260,7 +283,7 @@ async function getOTP(email, domain) {
 
                 console.log(chalk.yellow(`[!] No OTP found in inbox ${inboxNum}, waiting 3 seconds...`));
                 await delay(3000);
-                break; 
+                break;
 
             } catch (error) {
                 console.log(chalk.red(`[!] Error checking inbox ${inboxNum}: ${error.message}`));
@@ -275,6 +298,74 @@ async function getOTP(email, domain) {
         }
     }
     return false;
+}
+
+async function getOTPLogin(email) {
+    if (!email || typeof email !== 'string') {
+        throw new Error('Email must be a string');
+    }
+
+    const data = { email: email };
+
+    try {
+        const response = await axios.post('https://gw.sosovalue.com/usercenter/email/anno/sendNewDeviceVerifyCode', data, axiosConfig);
+        if(response.data.code === 0){
+            console.log(chalk.cyan(`[*] OTP code sent successfully`)); 
+        }
+        return response.data; 
+    } catch (error) {
+        console.error(chalk.red(`[!] Error: ${error.response ? error.response.data : error.message}`));
+        throw error;
+    }
+}
+
+async function verifLogin(email, password, verifyCode) {
+    if (!email || typeof email !== 'string') {
+        throw new Error('Email must be a string');
+    }
+    if (!password || typeof password !== 'string') {
+        throw new Error('Password must be a string');
+    }
+    if (!verifyCode || typeof verifyCode !== 'string') {
+        throw new Error('VerifyCode must be a string');
+    }
+    
+    const encodedPassword = encodeBase64(password);
+
+    const data = {
+        isDifferent: true,
+        password: encodedPassword,
+        loginName: email,
+        type: 'portal',
+        verifyCode: verifyCode,
+    };
+
+    try {
+        const response = await axios.post('https://gw.sosovalue.com/authentication/auth/v2/emailPasswordLogin', data, axiosConfig);
+        if(response.data.code === 0){
+            console.log(chalk.green(`[+] Login successful, wallet address: ${response.data.data.walletAddress}`)); 
+        }
+        return response.data; 
+    } catch (error) {
+        console.error(chalk.red(`[!] Error: ${error.response ? error.response.data : error.message}`));
+        throw error;
+    }
+}
+
+async function loginToken(token, email, password) {
+    try {
+        const response = await axios.get('https://gw.sosovalue.com/authentication/user/getUserInfo', {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+            },
+            ...axiosConfig
+        });
+        fs.appendFileSync('results.txt', `${email}|${password}|${response.data.data.invitationCode}|isRobot: ${response.data.data.isRobot}|isSuspicious: ${response.data.data.isSuspicious}\n`, 'utf8');
+        return response;
+    } catch (error) {
+        console.error(chalk.red('[!] Error:', error.message));
+        return false;
+    }
 }
 
 async function processRegistration(accountIndex, totalAccounts, invite, password) {
@@ -300,16 +391,57 @@ async function processRegistration(accountIndex, totalAccounts, invite, password
             const selectedDomain = domains[Math.floor(Math.random() * domains.length)];
             const randEmail = randomEmail(selectedDomain);
 
-            await register(randEmail.email, password);
+            const regis = await register(randEmail.email, password);
+            if (regis.code !== 0) {
+                console.log(chalk.red(`[!] Email ${randEmail.email} is already in use`));
+                continue;
+            }
 
             const otp = await getOTP(randEmail.name, selectedDomain);
             if (!otp) {
-                throw new Error('Failed to get OTP');
+                throw new Error('Failed to get registration OTP');
             }
 
             await verifEmail(randEmail.email, password, otp, invite);
             
-            console.log(chalk.green(`[+] Account created successfully: ${randEmail.email}\n`));
+            console.log(chalk.green(`[+] Account created successfully: ${randEmail.email}`));
+            
+            console.log(chalk.cyan(`[*] Attempting login for account: ${randEmail.email}`));
+            const regLogin = await getOTPLogin(randEmail.email);
+            if (regLogin.code !== 0) {
+                console.log(chalk.red(`[!] Login request failed for ${randEmail.email}`));
+                continue;
+            }
+
+            await delay(5000);
+            const loginOtp = await getOTP(randEmail.name, selectedDomain, 1);
+            if (!loginOtp) {
+                throw new Error('Failed to get login OTP');
+            }
+
+            const verifLogins = await verifLogin(randEmail.email, password, loginOtp);
+            if (verifLogins.code !== 0) {
+                console.log(chalk.red(`[!] Login verification failed for ${randEmail.email}`));
+                continue;
+            }
+
+            const login = await loginToken(verifLogins.data.token, randEmail.email, password);
+            if (!login || (login.data && login.data.code !== 0)) {
+                console.log(chalk.red(`[!] Failed to get user info for ${randEmail.email}`));
+                continue;
+            }
+
+            fs.appendFileSync('results.txt', `${randEmail.email}|${password}|${invite}|${login.data.data.invitationCode}|${verifLogins.data.walletAddress}\n`);
+            fs.appendFileSync('refcodeonly.txt', `${login.data.data.invitationCode}\n`);
+
+            console.log(chalk.cyan('\n[+] Login successful with data:'));
+            console.log(chalk.cyan(`    → Username: ${login.data.data.username}`));
+            console.log(chalk.cyan(`    → Invitation Code: ${login.data.data.invitationCode}`));
+            console.log(chalk.cyan(`    → Total Invitations: ${login.data.data.totalInvitations}`));
+            console.log(chalk.cyan(`    → Is Robot: ${login.data.data.isRobot}`));
+            console.log(chalk.cyan(`    → Is Suspicious: ${login.data.data.isSuspicious}`));
+            console.log(chalk.cyan(`    → Wallet Address: ${verifLogins.data.walletAddress}\n`));
+            
             success = true;
 
         } catch (error) {
@@ -324,25 +456,7 @@ async function processRegistration(accountIndex, totalAccounts, invite, password
     return success;
 }
 
-(async () => {
-    console.clear();
-    console.log(chalk.yellow('==============================================='));
-    console.log(chalk.yellow('               SosoValue Autoref               '));
-    console.log(chalk.yellow('                 By mamangzed                  '));
-    console.log(chalk.yellow('             Revamped By IM-Hanzou             '));
-    console.log(chalk.yellow('===============================================\n'));
-
-    const ipChoice = readlineSync.question(chalk.cyan('Using Proxy? (y/n): ')).toLowerCase();
-    useProxy = ipChoice === 'y';
-
-    if (useProxy) {
-        loadProxies();
-    }
-
-    const invite = readlineSync.question(chalk.cyan('Enter invitation code: '));
-    const password = readlineSync.question(chalk.cyan('Enter password for accounts: '), { hideEchoBack: true }); 
-    const accountCount = readlineSync.questionInt(chalk.cyan('Number of accounts to create: '));
-
+async function processSingleMode(invite, password, accountCount) {
     let successfulAccounts = 0;
     let failedAccounts = 0;
 
@@ -355,10 +469,82 @@ async function processRegistration(accountIndex, totalAccounts, invite, password
         }
     }
 
+    return { successfulAccounts, failedAccounts };
+}
+
+async function processMultiMode(refCodes, password, accountsPerCode) {
+    let totalSuccessful = 0;
+    let totalFailed = 0;
+    
+    for (let i = 0; i < refCodes.length; i++) {
+        const invite = refCodes[i];
+        console.log(chalk.yellow(`\n===============================================`));
+        console.log(chalk.yellow(`Processing Referral Code ${i + 1}/${refCodes.length}: ${invite}`));
+        console.log(chalk.yellow(`===============================================\n`));
+
+        let successfulAccounts = 0;
+        let failedAccounts = 0;
+
+        for (let j = 0; j < accountsPerCode; j++) {
+            const success = await processRegistration(j, accountsPerCode, invite, password);
+            if (success) {
+                successfulAccounts++;
+                totalSuccessful++;
+            } else {
+                failedAccounts++;
+                totalFailed++;
+            }
+        }
+
+        console.log(chalk.cyan(`\n[*] Results for code ${invite}:`));
+        console.log(chalk.green(`[+] Successfully created: ${successfulAccounts} accounts`));
+        console.log(chalk.red(`[+] Failed to create: ${failedAccounts} accounts`));
+    }
+
+    return { totalSuccessful, totalFailed };
+}
+
+(async () => {
+    console.clear();
+    console.log(chalk.yellow('==============================================='));
+    console.log(chalk.yellow('               SosoValue Autoref               '));
+    console.log(chalk.yellow('                 By mamangzed                  '));
+    console.log(chalk.yellow('             Revamped By IM-Hanzou            '));
+    console.log(chalk.yellow('===============================================\n'));
+
+    const ipChoice = readlineSync.question(chalk.cyan('Using Proxy? (y/n): ')).toLowerCase();
+    useProxy = ipChoice === 'y';
+
+    if (useProxy) {
+        loadProxies();
+    }
+
+    const mode = readlineSync.question(chalk.cyan('Choose mode (1: Single Code, 2: Multiple Codes from refcode.txt): '));
+    const password = readlineSync.question(chalk.cyan('Enter password for accounts: '), { hideEchoBack: true });
+
+    let results;
+
+    if (mode === '1') {
+        const invite = readlineSync.question(chalk.cyan('Enter invitation code: '));
+        const accountCount = readlineSync.questionInt(chalk.cyan('Number of accounts to create: '));
+        results = await processSingleMode(invite, password, accountCount);
+    } else if (mode === '2') {
+        const refCodes = await loadRefCodes();
+        if (refCodes.length === 0) {
+            console.log(chalk.red('[!] Cannot proceed without referral codes'));
+            return;
+        }
+        const accountsPerCode = readlineSync.questionInt(chalk.cyan('Number of accounts to create per referral code: '));
+        results = await processMultiMode(refCodes, password, accountsPerCode);
+    } else {
+        console.log(chalk.red('[!] Invalid mode selected'));
+        return;
+    }
+
     console.log(chalk.green('\n==============================================='));
     console.log(chalk.green(`[+] Registration process completed!`));
-    console.log(chalk.cyan(`[*] Successfully created: ${successfulAccounts} accounts`));
-    console.log(chalk.red(`[*] Failed to create: ${failedAccounts} accounts`));
+    console.log(chalk.cyan(`[*] Successfully created: ${results.totalSuccessful || results.successfulAccounts} accounts`));
+    console.log(chalk.red(`[*] Failed to create: ${results.totalFailed || results.failedAccounts} accounts`));
     console.log(chalk.cyan('[*] Check results.txt for account details'));
     console.log(chalk.green('===============================================\n'));
 })();
