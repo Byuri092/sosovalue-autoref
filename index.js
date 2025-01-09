@@ -432,13 +432,9 @@ async function processRegistration(accountIndex, totalAccounts, invite, password
                 continue;
             }
 
-            fs.appendFileSync('results.txt', `${randEmail.email}|${password}|${invite}|${login.data.data.invitationCode}|${verifLogins.data.walletAddress}\n`);
-            fs.appendFileSync('refcodeonly.txt', `${login.data.data.invitationCode}\n`);
-
             console.log(chalk.cyan('\n[+] Login successful with data:'));
             console.log(chalk.cyan(`    → Username: ${login.data.data.username}`));
             console.log(chalk.cyan(`    → Invitation Code: ${login.data.data.invitationCode}`));
-            console.log(chalk.cyan(`    → Total Invitations: ${login.data.data.totalInvitations}`));
             console.log(chalk.cyan(`    → Is Robot: ${login.data.data.isRobot}`));
             console.log(chalk.cyan(`    → Is Suspicious: ${login.data.data.isSuspicious}`));
             console.log(chalk.cyan(`    → Wallet Address: ${verifLogins.data.walletAddress}\n`));
