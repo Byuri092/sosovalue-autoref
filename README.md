@@ -1,7 +1,7 @@
 # SosoValue Autoref
 SosoValue AutoRef is a script for automating referrals on SosoValue using proxies.
 ## Tools and components required
-1. SoSoValue Account | Register: [SoSoValue](https://sosovalue.com/join/K61K5702)
+1. SoSoValue Account | Register: [SoSoValue](https://sosovalue.com/join/VINW2934)
 2. Proxies
 3. VPS or RDP (OPTIONAL)
 4. NodeJS v20LTS
