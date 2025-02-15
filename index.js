@@ -127,6 +127,16 @@ async function getTempMailEmail() {
     }
 }
 
+async function checkEmailAvailability(email) {
+    try {
+        const response = await axios.post('https://gw.sosovalue.com/usercenter/email/anno/checkEmail', { email }, axiosConfig);
+        return response.data.code === 0; // Retorna true se o e-mail estiver disponível
+    } catch (error) {
+        console.error(chalk.red(`[!] Error checking email availability: ${error.message}`));
+        return false;
+    }
+}
+
 async function getTempMailOTP(email) {
     try {
         const response = await axios.get(`https://api.tempmail.lol/activity/${email}`);
@@ -146,22 +156,6 @@ async function getTempMailOTP(email) {
 
 function encodeBase64(str) {
     return Buffer.from(str).toString('base64');
-}
-
-function randomEmail(domain) {
-    const firstName = faker.person.firstName();
-    const lastName = faker.person.lastName();
-
-    const cleanFirstName = firstName.replace(/[^a-zA-Z]/g, ''); 
-    const cleanLastName = lastName.replace(/[^a-zA-Z]/g, '');   
-
-    const randomNum = Math.floor(Math.random() * 900) + 100;
-    const emailName = `${cleanFirstName.toLowerCase()}${cleanLastName.toLowerCase()}${randomNum}`;
-
-    return {
-        name: emailName,
-        email: `${emailName}@${domain}`
-    };
 }
 
 async function register(email, password) {
@@ -257,28 +251,41 @@ async function processRegistration(accountIndex, totalAccounts, invite, password
                 await getRandomProxy();
             }
 
-            const tempMailData = await getTempMailEmail();
-            const email = tempMailData.address;
-            const domain = email.split('@')[1];
+            let emailAvailable = false;
+            let emailData;
 
-            console.log(chalk.green(`[+] Generated email: ${email}`));
+            // Tenta gerar um e-mail disponível
+            while (!emailAvailable) {
+                emailData = await getTempMailEmail();
+                const email = emailData.address;
+
+                console.log(chalk.cyan(`[*] Checking if email ${email} is available...`));
+                emailAvailable = await checkEmailAvailability(email);
+
+                if (!emailAvailable) {
+                    console.log(chalk.yellow(`[!] Email ${email} is already in use, generating a new one...`));
+                    await delay(2000); // Aguarda 2 segundos antes de tentar novamente
+                }
+            }
+
+            const email = emailData.address;
+            console.log(chalk.green(`[+] Email ${email} is available`));
 
             const regis = await register(email, password);
             if (regis.code !== 0) {
-                console.log(chalk.red(`[!] Email ${email} is already in use`));
+                console.log(chalk.red(`[!] Registration failed for ${email}`));
                 continue;
             }
 
-            await delay(10000); // Wait for the OTP email to arrive
+            await delay(10000); // Aguarda o e-mail de OTP chegar
             const otp = await getTempMailOTP(email);
             if (!otp) {
                 throw new Error('Failed to get registration OTP');
             }
 
             await verifEmail(email, password, otp, invite);
-            
             console.log(chalk.green(`[+] Account created successfully: ${email}`));
-            
+
             console.log(chalk.cyan(`[*] Attempting login for account: ${email}`));
             const regLogin = await getOTPLogin(email);
             if (regLogin.code !== 0) {
@@ -310,7 +317,7 @@ async function processRegistration(accountIndex, totalAccounts, invite, password
             console.log(chalk.cyan(`    → Is Robot: ${login.data.data.isRobot}`));
             console.log(chalk.cyan(`    → Is Suspicious: ${login.data.data.isSuspicious}`));
             console.log(chalk.cyan(`    → Wallet Address: ${verifLogins.data.walletAddress}\n`));
-            
+
             success = true;
 
         } catch (error) {
