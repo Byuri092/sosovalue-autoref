@@ -12,10 +12,7 @@ let axiosConfig = {};
 let proxyList = [];
 let useProxy = false;
 const maxRetries = 3;
-let emailDomain = '';
-let emailAddress = '';
 
-// Função para obter o agente proxy
 function getProxyAgent(proxyUrl) {
     try {
         const isSocks = proxyUrl.toLowerCase().startsWith('socks');
@@ -30,7 +27,6 @@ function getProxyAgent(proxyUrl) {
     }
 }
 
-// Carregar proxies
 function loadProxies() {
     try {
         const proxyFile = fs.readFileSync('proxies.txt', 'utf8');
@@ -55,7 +51,6 @@ function loadProxies() {
     }
 }
 
-// Carregar códigos de referência
 async function loadRefCodes() {
     try {
         if (!fs.existsSync('refcode.txt')) {
@@ -80,7 +75,6 @@ async function loadRefCodes() {
     }
 }
 
-// Função para verificar o IP
 async function checkIP() {
     try {
         const response = await axios.get('https://api.ipify.org?format=json', axiosConfig);
@@ -93,7 +87,6 @@ async function checkIP() {
     }
 }
 
-// Função para obter um proxy aleatório
 async function getRandomProxy() {
     if (!useProxy || proxyList.length === 0) {
         axiosConfig = {};
@@ -122,109 +115,132 @@ async function getRandomProxy() {
     return false;
 }
 
-// Função para gerar e-mails aleatórios com a nova API
-async function generateRandomEmail() {
+async function getTempMailEmail() {
     try {
-        const response = await axios.get('https://www.1secmail.com/api/v1/?action=genRandomMailbox');
-        if (response.data && response.data[0]) {
-            emailDomain = response.data[0].split('@')[1]; // Pegando o domínio do e-mail gerado
-            emailAddress = response.data[0]; // E-mail completo
-            console.log(chalk.green(`[+] Random email generated: ${emailAddress}`));
-            return response.data[0];
-        } else {
-            throw new Error('Failed to generate random email');
+        const response = await axios.get('https://api.tempmail.lol/generate');
+        if (response.data && response.data.address) {
+            return response.data;
         }
+        throw new Error('Failed to generate email');
     } catch (error) {
-        console.error(chalk.red(`[!] Error generating random email: ${error.message}`));
+        console.error(chalk.red(`[!] Error generating email: ${error.message}`));
         throw error;
     }
 }
 
-// Função para obter o OTP de login
-async function getOTPLogin(email) {
-    if (!email || typeof email !== 'string') {
-        throw new Error('Email must be a string');
-    }
-
-    const data = { email: email };
-
+async function getTempMailOTP(email) {
     try {
-        const response = await axios.post('https://gw.sosovalue.com/usercenter/email/anno/sendNewDeviceVerifyCode', data, axiosConfig);
-        if(response.data.code === 0){
-            console.log(chalk.cyan(`[*] OTP code sent successfully`)); 
+        const response = await axios.get(`https://api.tempmail.lol/activity/${email}`);
+        if (response.data && response.data.length > 0) {
+            const latestEmail = response.data[0];
+            const otpMatch = latestEmail.body.match(/SoSoValue\s*-\s*(\d+)/);
+            if (otpMatch) {
+                return otpMatch[1];
+            }
         }
-        return response.data; 
+        throw new Error('No OTP found');
     } catch (error) {
-        console.error(chalk.red(`[!] Error: ${error.response ? error.response.data : error.message}`));
+        console.error(chalk.red(`[!] Error fetching OTP: ${error.message}`));
         throw error;
     }
 }
 
-// Função para capturar o OTP de um email
-async function getOTP() {
-    try {
-        // Gerar um e-mail aleatório
-        const randomEmail = await generateRandomEmail();
-
-        // Aguardar 3 segundos para verificar a caixa de entrada
-        await delay(3000);
-
-        console.log(chalk.cyan(`[*] Checking inbox for OTP...`));
-        
-        // Aqui você pode adicionar a lógica para verificar a caixa de entrada
-        // Usando a nova API ou qualquer outra lógica necessária para pegar o OTP
-    } catch (error) {
-        console.log(chalk.red(`[!] Error while getting OTP: ${error.message}`));
-    }
+function encodeBase64(str) {
+    return Buffer.from(str).toString('base64');
 }
 
-async function verifLogin(email, password, verifyCode) {
-    if (!email || typeof email !== 'string') {
-        throw new Error('Email must be a string');
-    }
-    if (!password || typeof password !== 'string') {
-        throw new Error('Password must be a string');
-    }
-    if (!verifyCode || typeof verifyCode !== 'string') {
-        throw new Error('VerifyCode must be a string');
-    }
+function randomEmail(domain) {
+    const firstName = faker.person.firstName();
+    const lastName = faker.person.lastName();
 
-    const encodedPassword = encodeBase64(password);
+    const cleanFirstName = firstName.replace(/[^a-zA-Z]/g, ''); 
+    const cleanLastName = lastName.replace(/[^a-zA-Z]/g, '');   
 
-    const data = {
-        isDifferent: true,
-        password: encodedPassword,
-        loginName: email,
-        type: 'portal',
-        verifyCode: verifyCode,
+    const randomNum = Math.floor(Math.random() * 900) + 100;
+    const emailName = `${cleanFirstName.toLowerCase()}${cleanLastName.toLowerCase()}${randomNum}`;
+
+    return {
+        name: emailName,
+        email: `${emailName}@${domain}`
     };
+}
 
-    try {
-        const response = await axios.post('https://gw.sosovalue.com/authentication/auth/v2/emailPasswordLogin', data, axiosConfig);
-        if(response.data.code === 0){
-            console.log(chalk.green(`[+] Login successful, wallet address: ${response.data.data.walletAddress}`)); 
+async function register(email, password) {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+        try {
+            console.log(chalk.cyan(`[*] Processing registration for ${email}...`));
+            
+            if (!email || typeof email !== 'string') {
+                throw new Error('Email must be a string');
+            }
+
+            if (!password || typeof password !== 'string') {
+                throw new Error('Password must be a string');
+            }
+
+            const encodedPassword = encodeBase64(password);
+            
+            const data = {
+                password: encodedPassword, 
+                rePassword: encodedPassword, 
+                username: "NEW_USER_NAME_02", 
+                email: email 
+            };
+
+            const response = await axios.post('https://gw.sosovalue.com/usercenter/email/anno/sendRegisterVerifyCode/V2', data, axiosConfig);
+            console.log(chalk.green(`[+] Registration successful for ${email}`));
+            return response.data;
+        } catch (error) {
+            console.log(chalk.red(`[!] Registration failed: ${error.message}`));
+            if (error.message.includes('ECONNREFUSED') || error.message.includes('ETIMEDOUT')) {
+                await getRandomProxy();
+            }
+            attempt++;
+            if (attempt < maxRetries) {
+                await delay(2000);
+            } else {
+                throw error;
+            }
         }
-        return response.data; 
-    } catch (error) {
-        console.error(chalk.red(`[!] Error: ${error.response ? error.response.data : error.message}`));
-        throw error;
     }
 }
 
-async function loginToken(token, email, password) {
-    try {
-        const response = await axios.get('https://gw.sosovalue.com/authentication/user/getUserInfo', {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-            },
-            ...axiosConfig
-        });
-        fs.appendFileSync('results.txt', `${email}|${password}|${response.data.data.invitationCode}|isRobot: ${response.data.data.isRobot}|isSuspicious: ${response.data.data.isSuspicious}\n`, 'utf8');
-        fs.appendFileSync('refcodeonly.txt', `${response.data.data.invitationCode}\n`, 'utf8');
-        return response;
-    } catch (error) {
-        console.error(chalk.red('[!] Error:', error.message));
-        return false;
+async function verifEmail(email, password, verifyCode, invitationCode) {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+        try {
+            console.log(chalk.cyan(`[*] Verifying email...`));
+
+            const encodedPassword = encodeBase64(password);
+            const data = {
+                password: encodedPassword,
+                rePassword: encodedPassword, 
+                username: "NEW_USER_NAME_02", 
+                email: email,
+                verifyCode: verifyCode,
+                invitationCode: invitationCode,
+                invitationFrom: null
+            };
+
+            const response = await axios.post('https://gw.sosovalue.com/usercenter/user/anno/v3/register', data, axiosConfig);
+            if(response.data.code === 0){
+                console.log(chalk.green(`[+] Account created successfully with referral code: ${invitationCode}`));
+                return response.data;
+            }
+            throw new Error(`Invalid response code: ${response.data.code}`);
+        } catch (error) {
+            console.log(chalk.red(`[!] Verification failed: ${error.message}`));
+            if (error.message.includes('ECONNREFUSED') || error.message.includes('ETIMEDOUT')) {
+                await getRandomProxy();
+            }
+            attempt++;
+            if (attempt < maxRetries) {
+                await delay(2000);
+            } else {
+                throw error;
+            }
+        }
     }
 }
 
@@ -242,52 +258,50 @@ async function processRegistration(accountIndex, totalAccounts, invite, password
                 await getRandomProxy();
             }
 
-            const domains = await getDomains();
-            if (domains.length === 0) {
-                throw new Error('Failed to fetch domains');
-            }
+            const tempMailData = await getTempMailEmail();
+            const email = tempMailData.address;
+            const domain = email.split('@')[1];
 
-            console.log(chalk.green(`[+] Found ${domains.length} domains\n`));
-            const selectedDomain = domains[Math.floor(Math.random() * domains.length)];
-            const randEmail = randomEmail(selectedDomain);
+            console.log(chalk.green(`[+] Generated email: ${email}`));
 
-            const regis = await register(randEmail.email, password);
+            const regis = await register(email, password);
             if (regis.code !== 0) {
-                console.log(chalk.red(`[!] Email ${randEmail.email} is already in use`));
+                console.log(chalk.red(`[!] Email ${email} is already in use`));
                 continue;
             }
 
-            const otp = await getOTP(randEmail.name, selectedDomain);
+            await delay(10000); // Wait for the OTP email to arrive
+            const otp = await getTempMailOTP(email);
             if (!otp) {
                 throw new Error('Failed to get registration OTP');
             }
 
-            await verifEmail(randEmail.email, password, otp, invite);
+            await verifEmail(email, password, otp, invite);
             
-            console.log(chalk.green(`[+] Account created successfully: ${randEmail.email}`));
+            console.log(chalk.green(`[+] Account created successfully: ${email}`));
             
-            console.log(chalk.cyan(`[*] Attempting login for account: ${randEmail.email}`));
-            const regLogin = await getOTPLogin(randEmail.email);
+            console.log(chalk.cyan(`[*] Attempting login for account: ${email}`));
+            const regLogin = await getOTPLogin(email);
             if (regLogin.code !== 0) {
-                console.log(chalk.red(`[!] Login request failed for ${randEmail.email}`));
+                console.log(chalk.red(`[!] Login request failed for ${email}`));
                 continue;
             }
 
             await delay(5000);
-            const loginOtp = await getOTP(randEmail.name, selectedDomain, 1);
+            const loginOtp = await getTempMailOTP(email);
             if (!loginOtp) {
                 throw new Error('Failed to get login OTP');
             }
 
-            const verifLogins = await verifLogin(randEmail.email, password, loginOtp);
+            const verifLogins = await verifLogin(email, password, loginOtp);
             if (verifLogins.code !== 0) {
-                console.log(chalk.red(`[!] Login verification failed for ${randEmail.email}`));
+                console.log(chalk.red(`[!] Login verification failed for ${email}`));
                 continue;
             }
 
-            const login = await loginToken(verifLogins.data.token, randEmail.email, password);
+            const login = await loginToken(verifLogins.data.token, email, password);
             if (!login || (login.data && login.data.code !== 0)) {
-                console.log(chalk.red(`[!] Failed to get user info for ${randEmail.email}`));
+                console.log(chalk.red(`[!] Failed to get user info for ${email}`));
                 continue;
             }
 
