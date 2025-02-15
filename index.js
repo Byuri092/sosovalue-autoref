@@ -1,6 +1,5 @@
 const axios = require('axios');
 const { default: chalk } = require('chalk');
-const cheerio = require('cheerio');
 const readlineSync = require('readline-sync');
 const fs = require('fs');
 const { faker } = require('@faker-js/faker');
@@ -382,14 +381,20 @@ async function processMultiMode(refCodes, password, accountsPerCode) {
     console.log(chalk.yellow('             Revamped By IM-Hanzou            '));
     console.log(chalk.yellow('===============================================\n'));
 
-    const ipChoice = readlineSync.question(chalk.cyan('Using Proxy? (y/n): ')).toLowerCase();
+    const ipChoice = readlineSync.question(chalk.cyan('Using Proxy? (y/n): '), {
+        limit: ['y', 'n'],
+        limitMessage: chalk.red('[!] Invalid choice. Please enter "y" or "n".')
+    });
     useProxy = ipChoice === 'y';
 
     if (useProxy) {
         loadProxies();
     }
 
-    const mode = readlineSync.question(chalk.cyan('Choose mode (1: Single Code, 2: Multiple Codes from refcode.txt): '));
+    const mode = readlineSync.question(chalk.cyan('Choose mode (1: Single Code, 2: Multiple Codes from refcode.txt): '), {
+        limit: ['1', '2'],
+        limitMessage: chalk.red('[!] Invalid mode selected. Please choose 1 or 2.')
+    });
     const password = readlineSync.question(chalk.cyan('Enter password for accounts: '), { hideEchoBack: true });
 
     let results;
@@ -406,9 +411,6 @@ async function processMultiMode(refCodes, password, accountsPerCode) {
         }
         const accountsPerCode = readlineSync.questionInt(chalk.cyan('Number of accounts to create per referral code: '));
         results = await processMultiMode(refCodes, password, accountsPerCode);
-    } else {
-        console.log(chalk.red('[!] Invalid mode selected'));
-        return;
     }
 
     console.log(chalk.green('\n==============================================='));
