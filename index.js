@@ -12,7 +12,10 @@ let axiosConfig = {};
 let proxyList = [];
 let useProxy = false;
 const maxRetries = 3;
+let emailDomain = '';
+let emailAddress = '';
 
+// Função para obter o agente proxy
 function getProxyAgent(proxyUrl) {
     try {
         const isSocks = proxyUrl.toLowerCase().startsWith('socks');
@@ -27,6 +30,7 @@ function getProxyAgent(proxyUrl) {
     }
 }
 
+// Carregar proxies
 function loadProxies() {
     try {
         const proxyFile = fs.readFileSync('proxies.txt', 'utf8');
@@ -51,6 +55,7 @@ function loadProxies() {
     }
 }
 
+// Carregar códigos de referência
 async function loadRefCodes() {
     try {
         if (!fs.existsSync('refcode.txt')) {
@@ -75,6 +80,7 @@ async function loadRefCodes() {
     }
 }
 
+// Função para verificar o IP
 async function checkIP() {
     try {
         const response = await axios.get('https://api.ipify.org?format=json', axiosConfig);
@@ -87,6 +93,7 @@ async function checkIP() {
     }
 }
 
+// Função para obter um proxy aleatório
 async function getRandomProxy() {
     if (!useProxy || proxyList.length === 0) {
         axiosConfig = {};
@@ -115,191 +122,25 @@ async function getRandomProxy() {
     return false;
 }
 
-async function getDomains() {
-    let attempt = 0;
-    while (attempt < maxRetries) {
-        try {
-            const key = String.fromCharCode(97 + Math.floor(Math.random() * 26)) + 
-                       String.fromCharCode(97 + Math.floor(Math.random() * 26));
-            
-            console.log(chalk.cyan(`[*] Fetching domains with key: ${key}`));
-            const response = await axios.get(`https://generator.email/search.php?key=${key}`, axiosConfig);
-            if (response.data && Array.isArray(response.data) && response.data.length > 0) {
-                return response.data;
-            }
-            attempt++;
-            await delay(2000);
-        } catch (error) {
-            console.error(chalk.red(`[!] Error fetching domains: ${error.message}`));
-            if (error.message.includes('ECONNREFUSED') || error.message.includes('ETIMEDOUT')) {
-                await getRandomProxy();
-            }
-            attempt++;
-            await delay(2000);
+// Função para gerar e-mails aleatórios com a nova API
+async function generateRandomEmail() {
+    try {
+        const response = await axios.get('https://www.1secmail.com/api/v1/?action=genRandomMailbox');
+        if (response.data && response.data[0]) {
+            emailDomain = response.data[0].split('@')[1]; // Pegando o domínio do e-mail gerado
+            emailAddress = response.data[0]; // E-mail completo
+            console.log(chalk.green(`[+] Random email generated: ${emailAddress}`));
+            return response.data[0];
+        } else {
+            throw new Error('Failed to generate random email');
         }
-    }
-    return [];
-}
-
-function encodeBase64(str) {
-    return Buffer.from(str).toString('base64');
-}
-
-function randomEmail(domain) {
-    const firstName = faker.person.firstName();
-    const lastName = faker.person.lastName();
-
-    const cleanFirstName = firstName.replace(/[^a-zA-Z]/g, ''); 
-    const cleanLastName = lastName.replace(/[^a-zA-Z]/g, '');   
-
-    const randomNum = Math.floor(Math.random() * 900) + 100;
-    const emailName = `${cleanFirstName.toLowerCase()}${cleanLastName.toLowerCase()}${randomNum}`;
-
-    return {
-        name: emailName,
-        email: `${emailName}@${domain}`
-    };
-}
-
-async function register(email, password) {
-    let attempt = 0;
-    while (attempt < maxRetries) {
-        try {
-            console.log(chalk.cyan(`[*] Processing registration for ${email}...`));
-            
-            if (!email || typeof email !== 'string') {
-                throw new Error('Email must be a string');
-            }
-
-            if (!password || typeof password !== 'string') {
-                throw new Error('Password must be a string');
-            }
-
-            const encodedPassword = encodeBase64(password);
-            
-            const data = {
-                password: encodedPassword, 
-                rePassword: encodedPassword, 
-                username: "NEW_USER_NAME_02", 
-                email: email 
-            };
-
-            const response = await axios.post('https://gw.sosovalue.com/usercenter/email/anno/sendRegisterVerifyCode/V2', data, axiosConfig);
-            console.log(chalk.green(`[+] Registration successful for ${email}`));
-            return response.data;
-        } catch (error) {
-            console.log(chalk.red(`[!] Registration failed: ${error.message}`));
-            if (error.message.includes('ECONNREFUSED') || error.message.includes('ETIMEDOUT')) {
-                await getRandomProxy();
-            }
-            attempt++;
-            if (attempt < maxRetries) {
-                await delay(2000);
-            } else {
-                throw error;
-            }
-        }
+    } catch (error) {
+        console.error(chalk.red(`[!] Error generating random email: ${error.message}`));
+        throw error;
     }
 }
 
-async function verifEmail(email, password, verifyCode, invitationCode) {
-    let attempt = 0;
-    while (attempt < maxRetries) {
-        try {
-            console.log(chalk.cyan(`[*] Verifying email...`));
-
-            const encodedPassword = encodeBase64(password);
-            const data = {
-                password: encodedPassword,
-                rePassword: encodedPassword, 
-                username: "NEW_USER_NAME_02", 
-                email: email,
-                verifyCode: verifyCode,
-                invitationCode: invitationCode,
-                invitationFrom: null
-            };
-
-            const response = await axios.post('https://gw.sosovalue.com/usercenter/user/anno/v3/register', data, axiosConfig);
-            if(response.data.code === 0){
-                console.log(chalk.green(`[+] Account created successfully with referral code: ${invitationCode}`));
-                return response.data;
-            }
-            throw new Error(`Invalid response code: ${response.data.code}`);
-        } catch (error) {
-            console.log(chalk.red(`[!] Verification failed: ${error.message}`));
-            if (error.message.includes('ECONNREFUSED') || error.message.includes('ETIMEDOUT')) {
-                await getRandomProxy();
-            }
-            attempt++;
-            if (attempt < maxRetries) {
-                await delay(2000);
-            } else {
-                throw error;
-            }
-        }
-    }
-}
-
-async function getOTP(email, domain, index = 0) {
-    for (let inboxNum = 1; inboxNum <= 9; inboxNum++) {
-        let attempt = 0;
-        while (attempt < maxRetries) {
-            try {
-                console.log(chalk.cyan(`[*] Checking inbox ${inboxNum}...`));
-                
-                const response = await axios.get(`https://generator.email/inbox${inboxNum}/`, {
-                    ...axiosConfig,
-                    headers: {
-                        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                        'accept-encoding': 'gzip, deflate, br, zstd',
-                        'accept-language': 'en-US,en;q=0.9',
-                        'cache-control': 'max-age=0',
-                        'cookie': `_gid=GA1.2.2095327855.1735069411; __gads=ID=52c0ef95ece1dcd3:T=1723296851:RT=1735074556:S=ALNI_MY-N05jLZ5xHVJagROLPVaB7iMLRw; __gpi=UID=00000ebb7726ad8a:T=1723296851:RT=1735074556:S=ALNI_MZmpm9iDReVIrzNmydV67PPYNJhQw; __eoi=ID=50b40b8c429867d1:T=1723296851:RT=1735074556:S=AA-AfjYcohPcYMEyMXK2GgCw44zC; embx=%5B%${email}%40${domain}%22%2C%${email}%40${domain}%22%5D; _gat_gtag_UA_35796116_32=1; _ga=GA1.2.1660632963.1723296850; surl=${domain}/${email}; FCNEC=%5B%5B%22AKsRol-Lci8hCqIvO_xclbprHLQSsPjFOFt6Pu7w2kyTOo7Ahz83hFD5UlFG9kiq9pVZq23iGbdhLjdGucomp2CbWu2ZinNJRZYX3Xox3-XDAQ1imUiw8JveMOGFIHmDhh-EG1jHAFbEhKA-9N1aQd-DPg26Dn263A%3D%3D%22%5D%5D; _ga_1GPPTBHNKN=GS1.1.1735073618.15.1.1735074641.40.0.0`,
-                        'priority': 'u=0, i',
-                        'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-                        'sec-ch-ua-mobile': '?0',
-                        'sec-ch-ua-platform': '"Windows"',
-                        'sec-fetch-dest': 'document',
-                        'sec-fetch-mode': 'navigate',
-                        'sec-fetch-site': 'same-origin',
-                        'sec-fetch-user': '?1',
-                        'upgrade-insecure-requests': '1',
-                        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-                    }
-                });
-
-                const $ = cheerio.load(response.data);
-                const containerElements = $('.e7m.container.to1').eq(2).html();
-                const regex = /SoSoValue\s*-\s*(\d+)/;
-                
-                if (containerElements) {
-                    const match = containerElements.match(regex);
-                    if (match) {
-                        const otp = match[1];
-                        console.log(chalk.green(`[+] OTP found: ${otp}`));
-                        return otp;
-                    }
-                }
-
-                console.log(chalk.yellow(`[!] No OTP found in inbox ${inboxNum}, waiting 3 seconds...`));
-                await delay(3000);
-                break;
-
-            } catch (error) {
-                console.log(chalk.red(`[!] Error checking inbox ${inboxNum}: ${error.message}`));
-                if (error.message.includes('ECONNREFUSED') || error.message.includes('ETIMEDOUT')) {
-                    await getRandomProxy();
-                }
-                attempt++;
-                if (attempt < maxRetries) {
-                    await delay(3000);
-                }
-            }
-        }
-    }
-    return false;
-}
-
+// Função para obter o OTP de login
 async function getOTPLogin(email) {
     if (!email || typeof email !== 'string') {
         throw new Error('Email must be a string');
@@ -319,6 +160,24 @@ async function getOTPLogin(email) {
     }
 }
 
+// Função para capturar o OTP de um email
+async function getOTP() {
+    try {
+        // Gerar um e-mail aleatório
+        const randomEmail = await generateRandomEmail();
+
+        // Aguardar 3 segundos para verificar a caixa de entrada
+        await delay(3000);
+
+        console.log(chalk.cyan(`[*] Checking inbox for OTP...`));
+        
+        // Aqui você pode adicionar a lógica para verificar a caixa de entrada
+        // Usando a nova API ou qualquer outra lógica necessária para pegar o OTP
+    } catch (error) {
+        console.log(chalk.red(`[!] Error while getting OTP: ${error.message}`));
+    }
+}
+
 async function verifLogin(email, password, verifyCode) {
     if (!email || typeof email !== 'string') {
         throw new Error('Email must be a string');
@@ -329,7 +188,7 @@ async function verifLogin(email, password, verifyCode) {
     if (!verifyCode || typeof verifyCode !== 'string') {
         throw new Error('VerifyCode must be a string');
     }
-    
+
     const encodedPassword = encodeBase64(password);
 
     const data = {
